@@ -1,0 +1,29 @@
+
+DeviceInfo
+| where OSPlatform contains "Linux"  and IsExcluded==0
+| where DeviceType == "Server"
+| where Timestamp  between ((startofday(datetime(now), -8)) .. (endofday(datetime(now), -1)))
+| summarize arg_max(Timestamp, *) by DeviceId
+| project DeviceId, DeviceName, OSPlatform,OSDistribution,OSVersionInfo
+| join kind = inner (
+DeviceNetworkInfo 
+| where Timestamp between ((startofday(datetime(now), -8)) .. (endofday(datetime(now), -1)))
+| where isnotempty(IPAddresses) and NetworkAdapterName !contains "lo" and NetworkAdapterStatus contains "Up"
+| mv-expand IP = todynamic(['IPAddresses'])
+|extend IPAddresses=parse_json(IP.IPAddress)
+|where IPAddresses contains_cs "10."
+| summarize arg_max(Timestamp, *) by DeviceId
+|project DeviceId,IPAddresses
+)on DeviceId
+| join kind = inner (
+DeviceTvmSoftwareVulnerabilitiesKB 
+| where LastModifiedTime between ((startofday(datetime(now), -8)) .. (endofday(datetime(now), -1)))
+|where VulnerabilitySeverityLevel has_any ("Critical","High","Medium","Low" )
+| join kind = inner (
+DeviceTvmSoftwareVulnerabilities 
+| project DeviceId,OSPlatform,OSVersion,SoftwareVendor,SoftwareName,SoftwareVersion,CveId
+)on CveId
+|project CveId,CvssScore,VulnerabilitySeverityLevel,LastModifiedTime,PublishedDate, DeviceId, OSPlatform,SoftwareName,SoftwareVendor,SoftwareVersion,VulnerabilityDescription
+)on DeviceId
+| project DeviceName,IPAddresses, OSPlatform,OSDistribution,OSVersionInfo,CveId,CvssScore,VulnerabilitySeverityLevel,LastModifiedTime,PublishedDate,SoftwareName,SoftwareVendor,SoftwareVersion,VulnerabilityDescription
+| sort by LastModifiedTime desc 
