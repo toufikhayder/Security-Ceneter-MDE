@@ -1,0 +1,82 @@
+let exception_id = dynamic(["904b89a0f84f322b1ae8e57ee9cb7e586322bb43"]);
+let time_start = startofday(datetime(now), -2);
+let time_end = endofday(datetime(now), -2);
+DeviceInfo
+| where TimeGenerated between (time_start .. time_end)
+| where OSPlatform == 'Linux' and DeviceType == "Server"
+| where IsExcluded == "false"
+| summarize arg_max(Timestamp, *) by DeviceId
+| project
+    TimeGenerated,Timestamp,IsExcluded,
+    DeviceId,
+    DeviceName,
+    PublicIP,
+    OSPlatform,
+    OSVersionInfo,
+    OSArchitecture,
+    OSDistribution
+| join kind = rightouter ( 
+    DeviceInfo
+    | where TimeGenerated between ((startofday(datetime(now), -1)) .. (endofday(datetime(now), -1)))
+    | where OSPlatform == 'Linux'
+        and isnotempty(OSDistribution)
+        and DeviceType == "Server"
+        and isnotempty(OSVersionInfo)  
+    | summarize arg_max(Timestamp, *) by DeviceId
+    | where IsExcluded=="false"
+    ) on DeviceId
+| where isempty(DeviceId)
+| project
+    TimeGenerated=TimeGenerated1,
+    DeviceName=DeviceName1,
+    OSPlatform=OSPlatform1,
+    OSDistribution=OSDistribution1,
+    OSArchitecture=OSArchitecture1,
+    OSVersionInfo=OSVersionInfo1,
+    PublicIP=PublicIP1,
+    DeviceId=DeviceId1,
+    OnboardingStatus,
+    ClientVersion
+| join kind = leftouter (
+    DeviceInfo
+    | where TimeGenerated between ((startofday(datetime(now), -1)) .. (endofday(datetime(now), -1)))
+    | where OSPlatform == 'Linux' and isnotempty(OSDistribution) and DeviceType == "Server"
+    | summarize arg_max(Timestamp, *) by DeviceId
+    | where OSDistribution contains "ubuntu" and OSVersionInfo == 20.4 or OSVersionInfo == 22.4  
+     | where IsExcluded=="false"
+    | project DeviceId, DeviceName, OSDistribution, OSVersionInfo 
+    ) on DeviceId
+| where isempty(DeviceId1)
+| project
+    TimeGenerated,
+    DeviceId,
+    DeviceName,
+    OSPlatform,
+    OSDistribution,
+    OSArchitecture,
+    OSVersionInfo,
+    PublicIP,
+    OnboardingStatus,
+    ClientVersion
+| join kind = inner (
+    DeviceNetworkInfo
+    | where TimeGenerated between ((startofday(datetime(now), -1)) .. (endofday(datetime(now), -1)))
+    | where isnotempty(IPAddresses) and NetworkAdapterName !contains "lo"
+    | extend IPAddresses=tolower(IPAddresses.[0].IPAddress)
+    | extend IPaddr = extract("(10.109.([0-9]{1,3})\\.(([0-9]{1,3})))", 1, IPAddresses) 
+    | where isnotempty(IPaddr)
+    | summarize arg_max(Timestamp, *) by DeviceId
+    | project DeviceId, DeviceName, IPAddresses=IPaddr)
+    on DeviceId
+| where DeviceId !in~ (exception_id)
+| project
+    TimeGenerated,
+    DeviceName,
+    PrivateIP=IPAddresses,
+    PublicIP,
+    OSPlatform,
+    OSDistribution,
+    OSArchitecture,
+    OSVersionInfo,
+    OnboardingStatus,
+    ClientVersion
