@@ -1,0 +1,9 @@
+Ubiquiti_CL
+| where Message contains "wan-failover-monitor-icmp" and Message contains "UDM"
+| extend HostName1 = extract(@"[0-9][0-9]:[0-9][0-9]:[0-9][0-9](.*)", 1, Message)
+| extend Event = extract(@":(.*)", 1, HostName1)
+| extend replaced=replace_string(HostName1, ' ', ',')
+| extend split= split(replaced, ',', 1)
+| project TimeGenerated, HostName=split, Event
+| extend HostName = tostring(HostName.[0])
+| sort by TimeGenerated desc
