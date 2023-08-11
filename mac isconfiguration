@@ -1,0 +1,26 @@
+DeviceInfo 
+| where Timestamp between ((startofday(datetime(now), -5)) .. (endofday(datetime(now), -2)))
+|where isnotempty(OSDistribution) and OSDistribution contains "MacOS" and SensorHealthState has_any ("Misconfigured", "No sensor data")
+| summarize arg_max(Timestamp, *) by DeviceId
+|where IsExcluded==0
+|project Timestamp,DeviceId,DeviceName,PublicIP,OSPlatform,OSArchitecture,OSDistribution,OSVersionInfo,SensorHealthState
+| join kind = leftouter (
+DeviceInfo 
+| where Timestamp between ((startofday(datetime(now), -1)) .. (endofday(datetime(now), -0)))
+|where isnotempty(OSDistribution) and OSDistribution contains "MacOS" and SensorHealthState contains_cs "Active"
+| summarize arg_max(Timestamp, *) by DeviceId
+|where IsExcluded==0
+|project SensorHealthState,DeviceId
+)on DeviceId
+|where SensorHealthState1 != "Active"
+| join kind = leftouter (
+DeviceNetworkInfo 
+| where Timestamp between ((startofday(datetime(now), -5)) .. (endofday(datetime(now), -2)))
+| where isnotempty(IPAddresses) and NetworkAdapterName !contains "lo" and NetworkAdapterStatus contains "Up"
+| mv-expand IP = todynamic(['IPAddresses'])
+|extend IPAddresses=parse_json(IP.IPAddress)
+|where IPAddresses hasprefix_cs "10." or IPAddresses hasprefix_cs "192." or IPAddresses hasprefix_cs "172."
+| summarize arg_max(Timestamp, *) by DeviceId
+|project DeviceId,IPAddresses
+)on DeviceId
+|project Timestamp,DeviceName,PublicIP,PrivateIP=IPAddresses, OSPlatform,OSArchitecture,OSDistribution,OSVersionInfo,SensorHealthState
